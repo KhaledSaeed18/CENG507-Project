@@ -15,6 +15,14 @@ _start:
     addi a0, a0, 4
     bltu a0, a1, 1b
 2:
+    /* Setup trap vector for FreeRTOS */
+    la t0, freertos_risc_v_trap_handler
+    csrw mtvec, t0
+    
+    /* Enable machine-mode interrupts globally */
+    li t0, 0x8
+    csrs mstatus, t0
+    
     /* Jump to main */
     call main
     
