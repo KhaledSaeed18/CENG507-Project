@@ -7,7 +7,7 @@
 
 ---
 
-## 📋 Project Overview
+## Project Overview
 
 This project implements a practical, hands-on port of **FreeRTOS** to the **RISC-V** architecture, running on the **QEMU** emulator. The implementation demonstrates core embedded systems concepts including operating system porting, interrupt handling, context switching, and multi-tasking on a real-time kernel.
 
@@ -20,7 +20,7 @@ This project implements a practical, hands-on port of **FreeRTOS** to the **RISC
 
 ---
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```bash
 freertos_riscv_port/
@@ -53,7 +53,7 @@ freertos_riscv_port/
 
 ---
 
-## 🔧 Requirements & Prerequisites
+## Requirements & Prerequisites
 
 ### Software Requirements
 
@@ -69,7 +69,7 @@ freertos_riscv_port/
 
 ---
 
-## 🛠️ Building the Project
+## Building the Project
 
 ### Clean Build
 
@@ -101,7 +101,7 @@ CFLAGS = -march=rv64imac_zicsr -mabi=lp64 -mcmodel=medany
 
 ---
 
-## 🚀 Running the Project
+## Running the Project
 
 ### Quick Start
 
@@ -140,7 +140,7 @@ Press `Ctrl+A` then `X` to exit QEMU.
 
 ---
 
-## 📊 Architecture & Design
+## Architecture & Design
 
 ### System Architecture
 
@@ -200,7 +200,7 @@ The port uses RISC-V's machine-mode timer:
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### FreeRTOS Configuration ([FreeRTOSConfig.h](FreeRTOSConfig.h))
 
@@ -224,7 +224,7 @@ Edit [FreeRTOSConfig.h](FreeRTOSConfig.h) to:
 
 ---
 
-## 💾 Application Example: Multi-tasking
+## Application Example: Multi-tasking
 
 The provided [main.c](main.c) implements two concurrent tasks:
 
@@ -265,7 +265,7 @@ When running, you should observe:
 
 ---
 
-## 🔍 Debugging
+## Debugging
 
 ### Disassembly Inspection
 
@@ -305,7 +305,7 @@ riscv64-unknown-elf-gdb freertos_riscv.elf
 
 ---
 
-## 📚 Key Components Explained
+## Key Components Explained
 
 ### Startup Code ([start.S](start.S))
 
@@ -330,28 +330,28 @@ riscv64-unknown-elf-gdb freertos_riscv.elf
 
 ---
 
-## 🎯 Learning Outcomes
+## Learning Outcomes
 
 Upon completing this project, you will understand:
 
-✅ **OS Porting Concepts**
+**OS Porting Concepts**
 
 - Adapting kernel code to new architectures
 - Architecture-specific interrupt and context handling
 
-✅ **RISC-V Architecture**
+**RISC-V Architecture**
 
 - Instruction set and privilege modes
 - CSR (Control/Status Registers) manipulation
 - Machine mode timer and interrupt handling
 
-✅ **Real-Time Systems**
+**Real-Time Systems**
 
 - Task scheduling and preemption
 - Context switching mechanisms
 - Timing and synchronization primitives
 
-✅ **Embedded Development Workflow**
+**Embedded Development Workflow**
 
 - Cross-compilation for target architectures
 - Linker scripts and memory layout
@@ -359,7 +359,7 @@ Upon completing this project, you will understand:
 
 ---
 
-## 📖 References
+## References
 
 - [FreeRTOS Official Documentation](https://www.freertos.org/)
 - [RISC-V Instruction Set Manual](https://riscv.org/technical/specifications/)
@@ -368,6 +368,6 @@ Upon completing this project, you will understand:
 
 ---
 
-## 📝 License
+## License
 
 This project uses **FreeRTOS**, which is provided under the MIT License. See [Source/LICENSE.md](Source/LICENSE.md) for details.

@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Launch the built FreeRTOS ELF in QEMU. Run `make all` first to build
+# `freertos_riscv.elf` if it does not already exist.
+
 echo "Starting FreeRTOS on RISC-V in QEMU..."
 echo ""
 
