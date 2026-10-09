@@ -207,6 +207,34 @@ make PREFIX=riscv-none-elf-        # xPack toolchain
 make                               # riscv64-unknown-elf- toolchain
 ```
 
+How the build turns sources into the firmware image:
+
+```mermaid
+flowchart LR
+    subgraph SRC["Sources"]
+        direction TB
+        C["C files<br/>main.c, Source/*.c, port.c"]
+        S["Assembly<br/>start.S, portASM.S"]
+        H["Headers<br/>FreeRTOSConfig.h, portmacro.h"]
+    end
+
+    CC["Compile<br/>gcc -c, RV64IMAC, lp64"]
+    O["Object files<br/>*.o"]
+    LD["Link<br/>riscv.ld + newlib"]
+    ELF["freertos_riscv.elf"]
+    BIN["freertos_riscv.bin"]
+    ASM["freertos_riscv.asm"]
+    QEMU["QEMU virt<br/>run.sh"]
+
+    C --> CC
+    S --> CC
+    H -.-> CC
+    CC --> O --> LD --> ELF
+    ELF -- "objcopy" --> BIN
+    ELF -- "objdump" --> ASM
+    ELF -- "-kernel" --> QEMU
+```
+
 Build artifacts:
 
 | File | Description |
