@@ -28,7 +28,8 @@ SECTIONS
         _bss_end = .;
     } > RAM
     
-    . = ALIGN(8);
+    /* The RV64 port asserts that the interrupt stack is 16-byte aligned. */
+    . = ALIGN(16);
     . = . + 0x10000; /* 64KB stack */
     _stack_top = .;
     __freertos_irq_stack_top = _stack_top;
