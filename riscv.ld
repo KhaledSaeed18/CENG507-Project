@@ -15,16 +15,22 @@ SECTIONS
     
     .rodata : {
         *(.rodata*)
+        *(.srodata*)
     } > RAM
-    
+
     .data : {
         *(.data*)
+        *(.sdata*)
     } > RAM
-    
+
+    /* GCC places small variables in .sbss, so it must sit between _bss_start
+     * and _bss_end to be zeroed by start.S. */
     .bss : {
         _bss_start = .;
+        *(.sbss*)
         *(.bss*)
         *(COMMON)
+        . = ALIGN(8);
         _bss_end = .;
     } > RAM
     
