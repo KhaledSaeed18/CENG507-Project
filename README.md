@@ -370,18 +370,18 @@ flowchart LR
     subgraph RAM["RAM, 128 MB, low addresses at the top"]
         direction TB
         R1["0x80000000 .text<br/>code, 4 KB boot stack"]
-        R2["0x800030C8 .rodata, .sdata<br/>constants, small initialised data"]
-        R3["0x800032F0 .bss<br/>kernel data and the 16 KB heap"]
-        R4["0x80007530 .sbss<br/>small zero-initialised data"]
-        R5["up to 0x80017530<br/>64 KB interrupt stack, grows down"]
-        R6["0x80017530 to 0x88000000<br/>unused"]
+        R2["0x800030C8 .rodata<br/>constants"]
+        R3["0x800032D8 .data<br/>initialised variables"]
+        R4["0x800032F0 .bss<br/>zeroed data and the 16 KB heap"]
+        R5["up to 0x80017630<br/>64 KB interrupt stack, grows down"]
+        R6["0x80017630 to 0x88000000<br/>unused"]
         R1 ~~~ R2 ~~~ R3 ~~~ R4 ~~~ R5 ~~~ R6
     end
 
     MMIO ~~~ RAM
 ```
 
-Section addresses come from a build with xPack GCC 15.2.0 and can shift slightly with other compiler versions. Task stacks and task control blocks are allocated from the 16 KB `heap_4` pool inside `.bss`. The 64 KB interrupt stack is reserved by [riscv.ld](riscv.ld) and its top is exported as `__freertos_irq_stack_top`.
+Section addresses come from a build with xPack GCC 15.2.0 and can shift slightly with other compiler versions. GCC also emits small-data sections (`.srodata`, `.sdata`, `.sbss`) for RISC-V. [riscv.ld](riscv.ld) merges them into `.rodata`, `.data` and `.bss`, so every zero-initialised variable lies between `_bss_start` and `_bss_end` and is cleared by `start.S`. Task stacks and task control blocks are allocated from the 16 KB `heap_4` pool inside `.bss`. The 64 KB interrupt stack is reserved by the linker script, aligned to 16 bytes as the RV64 port requires, and its top is exported as `__freertos_irq_stack_top`.
 
 ### Tick interrupt and context switch
 
