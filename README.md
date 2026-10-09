@@ -277,28 +277,139 @@ To quit QEMU, press `Ctrl+A`, release, then press `X`.
 
 ## How it works
 
+### Architecture
+
+The project is split into four layers. The application only calls the FreeRTOS API, the kernel is portable C, and everything specific to RISC-V lives in `portable/`. The one exception is `print_uart()`, which writes straight to the UART register to keep output simple.
+
+```mermaid
+flowchart LR
+    subgraph APP["Application: main.c"]
+        direction TB
+        T1["Task 1<br/>priority 1<br/>period 1000 ms"]
+        T2["Task 2<br/>priority 2<br/>period 500 ms"]
+        PU["print_uart()"]
+        T1 ~~~ T2 ~~~ PU
+    end
+
+    subgraph KERNEL["FreeRTOS kernel: Source/"]
+        direction TB
+        SCHED["Scheduler<br/>tasks.c"]
+        LISTS["Task lists<br/>list.c"]
+        TMR["Timer service<br/>timers.c, queue.c"]
+        HEAP["16 KB heap<br/>heap_4.c"]
+        SCHED ~~~ LISTS ~~~ TMR ~~~ HEAP
+    end
+
+    subgraph PORT["RISC-V port: portable/"]
+        direction TB
+        SETUP["Tick timer setup<br/>port.c"]
+        TRAP["Trap handler<br/>portASM.S"]
+        CTX["Context save<br/>and restore<br/>portContext.h"]
+        SETUP ~~~ TRAP ~~~ CTX
+    end
+
+    subgraph HW["QEMU virt machine"]
+        direction TB
+        CPU["RV64 hart 0<br/>machine mode"]
+        CLINT["CLINT timer<br/>mtime, mtimecmp"]
+        UART["NS16550A UART<br/>0x10000000"]
+        CPU ~~~ CLINT ~~~ UART
+    end
+
+    APP == "task API calls" ==> KERNEL
+    KERNEL == "start scheduler<br/>yield" ==> PORT
+    PORT == "program timer<br/>mret into task" ==> HW
+    HW -. "timer interrupt" .-> PORT
+    PORT -. "tick, switch task" .-> KERNEL
+```
+
 ### Boot sequence
 
 1. QEMU loads the ELF at `0x80000000` and jumps to `_start` in [start.S](start.S).
 2. `_start` sets the stack pointer to a 4 KB boot stack, clears `.bss`, writes `freertos_risc_v_trap_handler` to `mtvec`, sets `mstatus.MIE`, and calls `main`.
-3. `main` creates both tasks and calls `vTaskStartScheduler()`.
+3. `main` creates both tasks and calls `vTaskStartScheduler()`, which also creates the idle task and the timer service task.
 4. The port programs `mtimecmp` for the first tick, enables the machine timer interrupt and restores the context of the highest priority ready task. From this point the kernel owns the CPU.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Q as QEMU
+    participant S as start.S
+    participant M as main.c
+    participant K as FreeRTOS kernel
+    participant P as RISC-V port
+    participant T as Tasks
+
+    Q->>S: Load ELF at 0x80000000, jump to _start in machine mode
+    Note over S: sp = 4 KB boot stack<br/>clear .bss<br/>mtvec = freertos_risc_v_trap_handler<br/>mstatus.MIE = 1
+    S->>M: call main
+    M->>K: xTaskCreate(Task 1), xTaskCreate(Task 2)
+    Note over K: TCBs and stacks allocated from the heap
+    M->>K: vTaskStartScheduler()
+    Note over K: Create idle task (priority 0)<br/>and timer service task (priority 6)
+    K->>P: xPortStartScheduler()
+    Note over P: mtimecmp = mtime + 10,000 (1 ms)<br/>mie.MTIE = 1
+    P->>T: xPortStartFirstTask(): restore context of highest priority task
+    Note over T: Timer service task runs and blocks,<br/>then Task 2, then Task 1, then idle
+```
+
+The timer service task has the highest priority, so it runs first. It has no timers to process, so it blocks straight away and Task 2 starts.
 
 ### Memory map
 
-| Address | Region |
-|---|---|
-| `0x02004000` | CLINT `mtimecmp` (hart 0) |
-| `0x0200BFF8` | CLINT `mtime` |
-| `0x10000000` | NS16550A UART transmit register |
-| `0x80000000` | Start of RAM: `.text`, `.rodata`, `.data`, `.bss` |
-| after `.bss` | 64 KB region reserved by [riscv.ld](riscv.ld), used as the interrupt stack (`__freertos_irq_stack_top`) |
+```mermaid
+flowchart LR
+    subgraph MMIO["Devices"]
+        direction TB
+        M1["0x02004000<br/>CLINT mtimecmp"]
+        M2["0x0200BFF8<br/>CLINT mtime"]
+        M3["0x10000000<br/>UART"]
+        M1 ~~~ M2 ~~~ M3
+    end
 
-Task stacks are allocated from the 16 KB `heap_4` pool inside `.bss`.
+    subgraph RAM["RAM, 128 MB, low addresses at the top"]
+        direction TB
+        R1["0x80000000 .text<br/>code, 4 KB boot stack"]
+        R2["0x800030C8 .rodata, .sdata<br/>constants, small initialised data"]
+        R3["0x800032F0 .bss<br/>kernel data and the 16 KB heap"]
+        R4["0x80007530 .sbss<br/>small zero-initialised data"]
+        R5["up to 0x80017530<br/>64 KB interrupt stack, grows down"]
+        R6["0x80017530 to 0x88000000<br/>unused"]
+        R1 ~~~ R2 ~~~ R3 ~~~ R4 ~~~ R5 ~~~ R6
+    end
 
-### Tick and context switch
+    MMIO ~~~ RAM
+```
 
-The tick comes from the CLINT machine timer. QEMU's `mtime` runs at 10 MHz, which matches `configCPU_CLOCK_HZ`, so each 1 ms tick is 10,000 timer counts. On every timer interrupt, the trap handler in [portable/portASM.S](portable/portASM.S) saves the running task's registers, switches to the interrupt stack, advances `mtimecmp`, increments the tick count, and restores whichever task the scheduler selects.
+Section addresses come from a build with xPack GCC 15.2.0 and can shift slightly with other compiler versions. Task stacks and task control blocks are allocated from the 16 KB `heap_4` pool inside `.bss`. The 64 KB interrupt stack is reserved by [riscv.ld](riscv.ld) and its top is exported as `__freertos_irq_stack_top`.
+
+### Tick interrupt and context switch
+
+The tick comes from the CLINT machine timer. QEMU's `mtime` runs at 10 MHz, which matches `configCPU_CLOCK_HZ`, so each 1 ms tick is 10,000 timer counts. Every trap, whether it is the timer interrupt or an `ecall` from `portYIELD()`, enters `freertos_risc_v_trap_handler` in [portable/portASM.S](portable/portASM.S):
+
+```mermaid
+flowchart TD
+    A(["Trap taken<br/>mtvec = freertos_risc_v_trap_handler"]) --> B["Save registers, mstatus and<br/>critical nesting on the task stack"]
+    B --> C{"mcause MSB set?"}
+    C -- "yes: interrupt" --> D["Save mepc<br/>switch sp to ISR stack"]
+    C -- "no: exception" --> E["Save mepc + 4<br/>switch sp to ISR stack"]
+
+    D --> F{"Machine timer<br/>interrupt?"}
+    F -- yes --> G["Write next tick time to mtimecmp<br/>add 10,000 for the following tick"]
+    G --> H["xTaskIncrementTick()<br/>wake tasks whose delay expired"]
+    H --> I{"Context switch<br/>required?"}
+    I -- yes --> J["vTaskSwitchContext()<br/>select highest priority ready task"]
+    I -- no --> K
+    F -- no --> L["Application interrupt handler"] --> K
+
+    E --> M{"mcause = 11?<br/>ecall from portYIELD()"}
+    M -- yes --> J
+    M -- no --> N["Application exception handler<br/>stops in a loop for the debugger"]
+
+    J --> K(["Restore context of pxCurrentTCB<br/>mret"])
+```
+
+A context switch is simply a change of `pxCurrentTCB`. The handler always restores registers from whichever task `pxCurrentTCB` points to, so returning with `mret` resumes the newly selected task.
 
 ### Scheduling behaviour
 
@@ -309,15 +420,46 @@ The tick comes from the CLINT machine timer. QEMU's `mtime` runs at 10 MHz, whic
 | Timer service task | 6 | on demand | 128 words |
 | Idle task | 0 | runs when nothing else is ready | 128 words |
 
-Both tasks use `vTaskDelayUntil()`, which wakes them at fixed points in time, so their periods do not drift. Timeline of the first second:
+Each application task moves through these states:
 
-| Time | Tasks woken | Output |
-|---|---|---|
-| 0 ms | Task 1, Task 2 | `Task 2 is running`, then `Task 1 is running` |
-| 500 ms | Task 2 | `Task 2 is running` |
-| 1000 ms | Task 1, Task 2 | `Task 2 is running`, then `Task 1 is running` |
+```mermaid
+stateDiagram-v2
+    [*] --> Ready: xTaskCreate()
+    Ready --> Running: highest priority ready task
+    Running --> Ready: preempted by a higher priority task
+    Running --> Blocked: vTaskDelayUntil()
+    Blocked --> Ready: tick reaches wake time
+```
 
-The pattern then repeats every second.
+Both tasks use `vTaskDelayUntil()`, which wakes them at fixed points in time, so their periods do not drift. The first second of execution:
+
+```mermaid
+sequenceDiagram
+    participant Tick as Tick interrupt
+    participant T2 as Task 2 (priority 2)
+    participant T1 as Task 1 (priority 1)
+    participant Idle as Idle task (priority 0)
+
+    Note over Tick,Idle: t = 0 ms, scheduler starts
+    T2->>T2: print "Task 2 is running"
+    T2->>T1: Task 2 blocks until 500 ms, Task 1 runs
+    T1->>T1: print "Task 1 is running"
+    T1->>Idle: Task 1 blocks until 1000 ms, idle runs
+
+    Note over Tick,Idle: t = 500 ms
+    Tick->>T2: Task 2 wakes and preempts idle
+    T2->>T2: print "Task 2 is running"
+    T2->>Idle: Task 2 blocks until 1000 ms, idle runs
+
+    Note over Tick,Idle: t = 1000 ms
+    Tick->>T2: both tasks wake, Task 2 runs first
+    T2->>T2: print "Task 2 is running"
+    T2->>T1: Task 2 blocks until 1500 ms, Task 1 runs
+    T1->>T1: print "Task 1 is running"
+    T1->>Idle: Task 1 blocks until 2000 ms, idle runs
+```
+
+The pattern then repeats every second, which produces the output shown in [Sample output](#sample-output).
 
 ## Configuration
 
